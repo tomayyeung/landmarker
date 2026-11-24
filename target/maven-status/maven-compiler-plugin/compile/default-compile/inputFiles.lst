@@ -1,0 +1,12 @@
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/App.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/geom/Measure.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/geom/Resample.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/io/TpsReader.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/io/TpsWriter.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/model/Curve.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/model/Point2D.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/model/Specimen.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/ui/ImageCanvas.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/ui/MainFrame.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/ui/Mode.java
+/Users/Thomas/Desktop/cs/personal/landmarker/src/main/java/landmarker/ui/UndoManager.java
