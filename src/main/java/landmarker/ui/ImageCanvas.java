@@ -24,13 +24,15 @@ public class ImageCanvas extends JComponent {
 
     int selectedLandmark = -1;
     Curve selectedCurve = null;
+    /** Index of selected semi-landmark within selectedCurve, or -1 if the whole curve is selected. */
+    int selectedCurvePoint = -1;
     private final List<Point2D> pending = new ArrayList<>();
     private final List<Integer> traceIdx = new ArrayList<>();
     private Point2D hover;
     private String measureText;
 
     private Point dragStart; private double dragOffX, dragOffY;
-    private boolean panning, movingLandmark;
+    private boolean panning, movingLandmark, movingCurvePoint, dragUndoSaved;
     private static final double HIT_PX = 8;
 
     public ImageCanvas(MainFrame app) {
@@ -40,7 +42,7 @@ public class ImageCanvas extends JComponent {
         MouseAdapter m = new MouseAdapter() {
             @Override public void mousePressed(MouseEvent e) { requestFocusInWindow(); pressed(e); }
             @Override public void mouseDragged(MouseEvent e) { dragged(e); }
-            @Override public void mouseReleased(MouseEvent e) { panning = false; movingLandmark = false; }
+            @Override public void mouseReleased(MouseEvent e) { panning = false; movingLandmark = false; movingCurvePoint = false; }
             @Override public void mouseMoved(MouseEvent e) { hover = toImage(e.getPoint()); app.showCursor(hover); repaint(); }
             @Override public void mouseWheelMoved(MouseWheelEvent e) {
                 double f = Math.pow(1.1, -e.getPreciseWheelRotation());
@@ -55,12 +57,14 @@ public class ImageCanvas extends JComponent {
 
     public void setSpecimen(Specimen s, BufferedImage img) {
         spec = s; image = img;
-        selectedLandmark = -1; selectedCurve = null;
+        selectedLandmark = -1; clearCurveSelection();
         clearPending();
         fit();
     }
 
     public void setMode(Mode m) { mode = m; clearPending(); repaint(); }
+
+    void clearCurveSelection() { selectedCurve = null; selectedCurvePoint = -1; }
 
     void clearPending() { pending.clear(); traceIdx.clear(); measureText = null; repaint(); }
 
@@ -94,6 +98,30 @@ public class ImageCanvas extends JComponent {
         return best;
     }
 
+    private record CurveHit(Curve curve, int index) {}
+
+    /** Nearest semi-landmark point within hit radius. */
+    private CurveHit hitCurvePoint(Point2D ip) {
+        if (spec == null) return null;
+        double bd = HIT_PX / zoom; CurveHit best = null;
+        for (List<Curve> list : List.of(spec.curves, spec.outlines))
+            for (Curve c : list)
+                for (int i = 0; i < c.points.size(); i++) {
+                    double d = c.points.get(i).dist(ip);
+                    if (d <= bd) { bd = d; best = new CurveHit(c, i); }
+                }
+        return best;
+    }
+
+    /** Snap to an existing landmark or semi-landmark if one is under the cursor. */
+    private Point2D snap(Point2D ip) {
+        int lm = hitLandmark(ip);
+        if (lm >= 0) return spec.landmarks.get(lm);
+        CurveHit ch = hitCurvePoint(ip);
+        if (ch != null) return ch.curve.points.get(ch.index);
+        return ip;
+    }
+
     private Curve hitCurve(Point2D ip) {
         if (spec == null) return null;
         double r = HIT_PX / zoom;
@@ -116,13 +144,30 @@ public class ImageCanvas extends JComponent {
         }
         if (spec == null) return;
         Point2D ip = toImage(e.getPoint());
+        dragUndoSaved = false;
         switch (mode) {
+            case SELECT -> {
+                int hit = hitLandmark(ip);
+                CurveHit ch;
+                Curve c;
+                if (hit >= 0) {
+                    selectedLandmark = hit; clearCurveSelection(); movingLandmark = true;
+                } else if ((ch = hitCurvePoint(ip)) != null) {
+                    selectedLandmark = -1; selectedCurve = ch.curve; selectedCurvePoint = ch.index;
+                    movingCurvePoint = true;
+                } else if ((c = hitCurve(ip)) != null) {
+                    selectedLandmark = -1; selectedCurve = c; selectedCurvePoint = -1;
+                } else {
+                    selectedLandmark = -1; clearCurveSelection();
+                }
+                app.changed();
+            }
             case LANDMARK -> {
                 int hit = hitLandmark(ip);
                 if (hit >= 0) {
                     selectedLandmark = hit;
-                    app.undo.save(spec);
                     movingLandmark = true;
+                    app.changed();
                 } else {
                     app.undo.save(spec);
                     spec.landmarks.add(ip);
@@ -131,7 +176,7 @@ public class ImageCanvas extends JComponent {
                 }
             }
             case SCALE -> {
-                pending.add(ip);
+                pending.add(snap(ip));
                 if (pending.size() == 2) {
                     double px = pending.get(0).dist(pending.get(1));
                     repaint();
@@ -140,11 +185,8 @@ public class ImageCanvas extends JComponent {
                 }
             }
             case MEASURE -> {
-                Curve c = pending.isEmpty() ? hitCurve(ip) : null;
-                if (c != null) { selectedCurve = c; measureText = null; app.changed(); break; }
-                selectedCurve = null;
                 if (pending.size() >= 2) pending.clear();
-                pending.add(ip);
+                pending.add(snap(ip));
                 if (pending.size() == 2) {
                     double px = pending.get(0).dist(pending.get(1));
                     measureText = app.formatLength(px);
@@ -166,8 +208,12 @@ public class ImageCanvas extends JComponent {
             offX = dragOffX + (e.getX() - dragStart.x);
             offY = dragOffY + (e.getY() - dragStart.y);
             repaint();
-        } else if (movingLandmark && selectedLandmark >= 0 && spec != null) {
-            spec.landmarks.set(selectedLandmark, toImage(e.getPoint()));
+        } else if (spec != null && (movingLandmark || movingCurvePoint)) {
+            if (!dragUndoSaved) { app.undo.save(spec); dragUndoSaved = true; }
+            Point2D ip = toImage(e.getPoint());
+            if (movingLandmark && selectedLandmark >= 0) spec.landmarks.set(selectedLandmark, ip);
+            else if (movingCurvePoint && selectedCurve != null && selectedCurvePoint >= 0)
+                selectedCurve.points.set(selectedCurvePoint, ip);
             app.changed();
         }
     }
@@ -176,7 +222,10 @@ public class ImageCanvas extends JComponent {
         switch (e.getKeyCode()) {
             case KeyEvent.VK_ESCAPE -> clearPending();
             case KeyEvent.VK_ENTER -> finish();
-            case KeyEvent.VK_BACK_SPACE, KeyEvent.VK_DELETE -> deleteSelected();
+            case KeyEvent.VK_BACK_SPACE, KeyEvent.VK_DELETE -> {
+                if (e.isShiftDown() && selectedCurve != null) selectedCurvePoint = -1;
+                deleteSelected();
+            }
             case KeyEvent.VK_F -> fit();
             case KeyEvent.VK_EQUALS, KeyEvent.VK_PLUS -> zoomAt(new Point(getWidth() / 2, getHeight() / 2), 1.25);
             case KeyEvent.VK_MINUS -> zoomAt(new Point(getWidth() / 2, getHeight() / 2), 0.8);
@@ -191,8 +240,15 @@ public class ImageCanvas extends JComponent {
         }
         if (selectedCurve != null) {
             app.undo.save(spec);
-            spec.curves.remove(selectedCurve); spec.outlines.remove(selectedCurve);
-            selectedCurve = null; app.changed();
+            int min = selectedCurve.closed ? 3 : 2;
+            if (selectedCurvePoint >= 0 && selectedCurve.points.size() > min) {
+                selectedCurve.points.remove(selectedCurvePoint);
+                selectedCurvePoint = Math.min(selectedCurvePoint, selectedCurve.points.size() - 1);
+            } else {
+                spec.curves.remove(selectedCurve); spec.outlines.remove(selectedCurve);
+                clearCurveSelection();
+            }
+            app.changed();
         } else if (selectedLandmark >= 0 && selectedLandmark < spec.landmarks.size()) {
             app.undo.save(spec);
             spec.landmarks.remove(selectedLandmark);
@@ -225,7 +281,7 @@ public class ImageCanvas extends JComponent {
         app.undo.save(spec);
         Curve c = new Curve(Resample.smoothResample(ctrl, n, closed), closed);
         (closed ? spec.outlines : spec.curves).add(c);
-        selectedCurve = c;
+        selectedCurve = c; selectedCurvePoint = -1;
         clearPending();
         app.changed();
     }
@@ -253,7 +309,7 @@ public class ImageCanvas extends JComponent {
         g.setFont(getFont().deriveFont(Font.BOLD, 12f));
         for (int i = 0; i < spec.landmarks.size(); i++) {
             var p = toScreen(spec.landmarks.get(i));
-            boolean sel = i == selectedLandmark && mode == Mode.LANDMARK;
+            boolean sel = i == selectedLandmark && (mode == Mode.LANDMARK || mode == Mode.SELECT);
             boolean traced = traceIdx.contains(i);
             g.setColor(Color.BLACK);
             g.fill(new Ellipse2D.Double(p.x - 6, p.y - 6, 12, 12));
@@ -262,6 +318,16 @@ public class ImageCanvas extends JComponent {
             String lbl = String.valueOf(i + 1);
             g.setColor(Color.BLACK); g.drawString(lbl, (float) p.x + 8, (float) p.y - 5);
             g.setColor(Color.WHITE); g.drawString(lbl, (float) p.x + 7, (float) p.y - 6);
+        }
+
+        // highlight the point that a click would snap to / select
+        if (hover != null && (mode == Mode.SELECT || mode == Mode.SCALE || mode == Mode.MEASURE || mode == Mode.TRACE)) {
+            Point2D h = mode == Mode.TRACE ? (hitLandmark(hover) >= 0 ? spec.landmarks.get(hitLandmark(hover)) : null) : snap(hover);
+            if (h != null && h != hover) {
+                var p = toScreen(h);
+                g.setColor(Color.WHITE); g.setStroke(new BasicStroke(1.5f));
+                g.draw(new Ellipse2D.Double(p.x - 9, p.y - 9, 18, 18));
+            }
         }
 
         // pending / in-progress geometry
@@ -290,9 +356,13 @@ public class ImageCanvas extends JComponent {
         g.setColor(sel ? Color.YELLOW : col);
         g.setStroke(new BasicStroke(sel ? 3f : 2f));
         drawPoly(g, c.points, c.closed);
-        for (Point2D q : c.points) {
-            var p = toScreen(q);
-            g.draw(new Ellipse2D.Double(p.x - 3, p.y - 3, 6, 6));
+        for (int i = 0; i < c.points.size(); i++) {
+            var p = toScreen(c.points.get(i));
+            if (sel && i == selectedCurvePoint) {
+                g.setColor(Color.BLACK); g.fill(new Ellipse2D.Double(p.x - 6, p.y - 6, 12, 12));
+                g.setColor(Color.YELLOW); g.fill(new Ellipse2D.Double(p.x - 4.5, p.y - 4.5, 9, 9));
+                g.setColor(col);
+            } else g.draw(new Ellipse2D.Double(p.x - 3, p.y - 3, 6, 6));
         }
     }
 
@@ -311,6 +381,10 @@ public class ImageCanvas extends JComponent {
         List<Point2D> p = selectedCurve.points;
         StringBuilder sb = new StringBuilder();
         sb.append(selectedCurve.closed ? "Outline" : "Curve").append(" (").append(p.size()).append(" pts)\n");
+        if (selectedCurvePoint >= 0 && selectedCurvePoint < p.size()) {
+            Point2D q = p.get(selectedCurvePoint);
+            sb.append(String.format(Locale.ROOT, "Point %d: %.1f, %.1f\n", selectedCurvePoint + 1, q.x(), q.y()));
+        }
         if (selectedCurve.closed) {
             sb.append("Perimeter: ").append(app.formatLength(Measure.perimeter(p))).append('\n');
             sb.append("Area: ").append(app.formatArea(Measure.area(p))).append('\n');

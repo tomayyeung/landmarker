@@ -29,6 +29,7 @@ public class MainFrame extends JFrame {
     private final JLabel cursorLabel = new JLabel(" ");
     private final JTextField idField = new JTextField(), commentField = new JTextField();
     private final JLabel scaleLabel = new JLabel("-");
+    private final JButton applyScaleBtn = new JButton("Apply scale to all specimens");
     private final JTextArea infoArea = new JTextArea(6, 20);
     private final DefaultListModel<String> lmModel = new DefaultListModel<>();
     private final JList<String> lmList = new JList<>(lmModel);
@@ -148,6 +149,10 @@ public class MainFrame extends JFrame {
         c.gridx = 1; c.weightx = 1; meta.add(commentField, c);
         c.gridy = 2; c.gridx = 0; c.weightx = 0; meta.add(new JLabel("Scale"), c);
         c.gridx = 1; meta.add(scaleLabel, c);
+        c.gridy = 3; c.gridx = 1;
+        applyScaleBtn.setToolTipText("Copy this specimen's scale to every specimen in the project");
+        applyScaleBtn.addActionListener(e -> applyScaleToAll());
+        meta.add(applyScaleBtn, c);
         bind(idField, (s, v) -> { s.id = v.isBlank() ? null : v; specimenList.repaint(); });
         bind(commentField, (s, v) -> s.comment = v.isBlank() ? null : v);
         p.add(meta);
@@ -157,7 +162,7 @@ public class MainFrame extends JFrame {
         lmList.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         lmList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting() && lmList.getSelectedIndex() >= 0) {
-                canvas.selectedLandmark = lmList.getSelectedIndex(); canvas.repaint();
+                canvas.selectedLandmark = lmList.getSelectedIndex(); canvas.clearCurveSelection(); canvas.repaint();
             }
         });
         lm.add(new JScrollPane(lmList), BorderLayout.CENTER);
@@ -167,7 +172,7 @@ public class MainFrame extends JFrame {
         down.setToolTipText("Move landmark later (renumber)");
         up.addActionListener(e -> moveLandmark(-1));
         down.addActionListener(e -> moveLandmark(1));
-        del.addActionListener(e -> { canvas.selectedCurve = null; canvas.deleteSelected(); });
+        del.addActionListener(e -> { canvas.clearCurveSelection(); canvas.deleteSelected(); });
         btns.add(up); btns.add(down); btns.add(del);
         lm.add(btns, BorderLayout.SOUTH);
         lm.setPreferredSize(new Dimension(260, 320));
@@ -212,6 +217,7 @@ public class MainFrame extends JFrame {
         idField.setText(s == null || s.id == null ? "" : s.id);
         commentField.setText(s == null || s.comment == null ? "" : s.comment);
         updatingFields = false;
+        applyScaleBtn.setEnabled(s != null && s.scale != null && specimens.size() > 1);
         scaleLabel.setText(s == null || s.scale == null ? "not set (pixels)" :
                 String.format(Locale.ROOT, "%.6g %s/px", s.scale, units));
 
@@ -276,6 +282,14 @@ public class MainFrame extends JFrame {
     private void applyScaleToAll() {
         Specimen s = current();
         if (s == null || s.scale == null) { status("Current specimen has no scale"); return; }
+        int others = 0;
+        for (int i = 0; i < specimens.size(); i++) {
+            Double sc = specimens.get(i).scale;
+            if (specimens.get(i) != s && sc != null && !sc.equals(s.scale)) others++;
+        }
+        String msg = String.format(Locale.ROOT, "Set scale %.6g %s/px on all %d specimens?", s.scale, units, specimens.size())
+                + (others > 0 ? "\n" + others + " specimen(s) already have a different scale and will be overwritten." : "");
+        if (JOptionPane.showConfirmDialog(this, msg, "Apply Scale", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
         for (int i = 0; i < specimens.size(); i++) specimens.get(i).scale = s.scale;
         dirty = true;
         status("Scale applied to all " + specimens.size() + " specimens (not undoable)");
@@ -295,7 +309,7 @@ public class MainFrame extends JFrame {
         Specimen s = redo ? undo.redo() : undo.undo();
         if (s == null) { status("Nothing to " + (redo ? "redo" : "undo")); return; }
         if (s != current()) specimenList.setSelectedValue(s, true);
-        canvas.selectedCurve = null;
+        canvas.clearCurveSelection();
         canvas.selectedLandmark = Math.min(canvas.selectedLandmark, s.landmarks.size() - 1);
         changed();
     }
@@ -399,10 +413,14 @@ public class MainFrame extends JFrame {
         if (as || f == null) {
             JFileChooser fc = new JFileChooser(lastDir);
             fc.setFileFilter(new FileNameExtensionFilter("TPS files", "tps"));
-            fc.setSelectedFile(new File(lastDir, "landmarks.tps"));
+            File dir0 = tpsFile != null ? tpsFile.getParentFile() : lastDir;
+            Specimen cur = current();
+            String base = cur != null ? cur.toString().replaceAll("[\\\\/:*?\"<>|]", "_") : "landmarks";
+            if (base.toLowerCase(Locale.ROOT).endsWith(".tps")) base = base.substring(0, base.length() - 4);
+            fc.setSelectedFile(new File(dir0, base + ".tps"));
             if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return false;
             f = fc.getSelectedFile();
-            if (!f.getName().contains(".")) f = new File(f.getPath() + ".tps");
+            if (!f.getName().toLowerCase(Locale.ROOT).endsWith(".tps")) f = new File(f.getPath() + ".tps");
             if (f.exists() && JOptionPane.showConfirmDialog(this, f.getName() + " exists. Overwrite?", "Save",
                     JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return false;
         }
