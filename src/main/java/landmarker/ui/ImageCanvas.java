@@ -257,6 +257,36 @@ public class ImageCanvas extends JComponent {
         }
     }
 
+    /** Turn the selected curve's/outline's semi-landmarks into real landmarks. */
+    void convertSelectedCurve() {
+        if (spec == null || selectedCurve == null) { app.status("Select a curve or outline first"); return; }
+        app.undo.save(spec);
+        int total = selectedCurve.points.size();
+        int added = spec.curveToLandmarks(selectedCurve);
+        afterConvert(added, total);
+    }
+
+    /** Turn every curve and outline of the current specimen into real landmarks. */
+    void convertAllCurves() {
+        if (spec == null || (spec.curves.isEmpty() && spec.outlines.isEmpty())) {
+            app.status("No curves or outlines to convert"); return;
+        }
+        app.undo.save(spec);
+        int total = 0;
+        for (Curve c : spec.curves) total += c.points.size();
+        for (Curve c : spec.outlines) total += c.points.size();
+        int added = spec.allCurvesToLandmarks();
+        afterConvert(added, total);
+    }
+
+    private void afterConvert(int added, int total) {
+        clearCurveSelection();
+        if (added > 0) selectedLandmark = spec.landmarks.size() - 1;
+        app.changed();
+        app.status("Converted to " + added + " landmark(s)"
+                + (total > added ? " (" + (total - added) + " duplicate(s) skipped)" : ""));
+    }
+
     private void finish() {
         if (spec == null) return;
         List<Point2D> ctrl;

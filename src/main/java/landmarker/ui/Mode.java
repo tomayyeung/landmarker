@@ -1,7 +1,7 @@
 package landmarker.ui;
 
 public enum Mode {
-    SELECT("Select", "Click a landmark, semi-landmark or curve; drag to move; Delete removes point (Shift+Delete removes whole curve)"),
+    SELECT("Select", "Click a landmark, semi-landmark or curve; drag to move; Delete removes point (Shift+Delete removes whole curve); ⌘L converts selected curve to landmarks"),
     LANDMARK("Landmark", "Click to add, drag to move, Delete removes selected"),
     SCALE("Scale", "Click two points of known distance (snaps to existing landmarks)"),
     MEASURE("Measure", "Click two points to measure (snaps to existing landmarks)"),

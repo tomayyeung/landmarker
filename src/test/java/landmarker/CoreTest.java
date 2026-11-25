@@ -4,8 +4,10 @@ import landmarker.geom.Measure;
 import landmarker.geom.Resample;
 import landmarker.io.TpsReader;
 import landmarker.io.TpsWriter;
+import landmarker.model.Curve;
 import landmarker.model.Point2D;
 import landmarker.model.Specimen;
+import landmarker.ui.UndoManager;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -84,6 +86,45 @@ class CoreTest {
         double mean = Measure.perimeter(c) / 20;
         for (int i = 0; i < 20; i++)
             assertEquals(mean, c.get(i).dist(c.get((i + 1) % 20)), mean * 0.1);
+    }
+
+    @Test void curveToLandmarksSkipsDuplicatesAndRemovesCurve() {
+        Specimen s = new Specimen();
+        s.landmarks.addAll(List.of(new Point2D(0, 0), new Point2D(10, 0), new Point2D(20, 0)));
+        Curve c = new Curve(List.of(new Point2D(0, 0), new Point2D(1, 1), new Point2D(2, 2), new Point2D(10, 0.0001)), false);
+        s.curves.add(c);
+        int added = s.curveToLandmarks(c);
+        assertEquals(2, added);
+        assertEquals(List.of(new Point2D(0, 0), new Point2D(10, 0), new Point2D(20, 0), new Point2D(1, 1), new Point2D(2, 2)),
+                s.landmarks);
+        assertTrue(s.curves.isEmpty());
+    }
+
+    @Test void allCurvesToLandmarksCurvesThenOutlines() {
+        Specimen s = new Specimen();
+        s.outlines.add(new Curve(List.of(new Point2D(5, 5), new Point2D(6, 5), new Point2D(5, 6)), true));
+        s.curves.add(new Curve(List.of(new Point2D(1, 1), new Point2D(2, 2)), false));
+        assertEquals(5, s.allCurvesToLandmarks());
+        assertTrue(s.curves.isEmpty());
+        assertTrue(s.outlines.isEmpty());
+        assertEquals(new Point2D(1, 1), s.landmarks.get(0));
+        assertEquals(new Point2D(5, 5), s.landmarks.get(2));
+    }
+
+    @Test void undoSaveAllRestoresAllSpecimensInOneStep() {
+        Specimen a = new Specimen(), b = new Specimen();
+        a.curves.add(new Curve(List.of(new Point2D(1, 1), new Point2D(2, 2)), false));
+        b.outlines.add(new Curve(List.of(new Point2D(0, 0), new Point2D(1, 0), new Point2D(0, 1)), true));
+        UndoManager u = new UndoManager();
+        u.saveAll(List.of(a, b));
+        a.allCurvesToLandmarks(); b.allCurvesToLandmarks();
+        assertSame(a, u.undo());
+        assertEquals(1, a.curves.size()); assertEquals(0, a.landmarks.size());
+        assertEquals(1, b.outlines.size()); assertEquals(0, b.landmarks.size());
+        assertNull(u.undo());
+        u.redo();
+        assertEquals(2, a.landmarks.size()); assertTrue(a.curves.isEmpty());
+        assertEquals(3, b.landmarks.size()); assertTrue(b.outlines.isEmpty());
     }
 
     @Test void flipIsSelfInverse() {

@@ -98,6 +98,11 @@ public class MainFrame extends JFrame {
         edit.add(item("Redo", KeyStroke.getKeyStroke(KeyEvent.VK_Z, mod | InputEvent.SHIFT_DOWN_MASK), e -> doUndo(true)));
         edit.addSeparator();
         edit.add(item("Delete Selected", null, e -> canvas.deleteSelected()));
+        edit.addSeparator();
+        edit.add(item("Convert Selected Curve to Landmarks", KeyStroke.getKeyStroke(KeyEvent.VK_L, mod), e -> canvas.convertSelectedCurve()));
+        edit.add(item("Convert All Curves to Landmarks (This Specimen)", null, e -> canvas.convertAllCurves()));
+        edit.add(item("Convert All Curves to Landmarks (All Specimens)…", null, e -> convertAllSpecimens()));
+        edit.addSeparator();
         edit.add(item("Clear Scale", null, e -> { Specimen s = current(); if (s != null) { undo.save(s); s.scale = null; changed(); } }));
         edit.add(item("Apply Scale to All Specimens", null, e -> applyScaleToAll()));
         mb.add(edit);
@@ -293,6 +298,30 @@ public class MainFrame extends JFrame {
         for (int i = 0; i < specimens.size(); i++) specimens.get(i).scale = s.scale;
         dirty = true;
         status("Scale applied to all " + specimens.size() + " specimens (not undoable)");
+    }
+
+    private void convertAllSpecimens() {
+        List<Specimen> targets = new ArrayList<>();
+        int nCurves = 0, total = 0;
+        for (int i = 0; i < specimens.size(); i++) {
+            Specimen s = specimens.get(i);
+            if (s.curves.isEmpty() && s.outlines.isEmpty()) continue;
+            targets.add(s);
+            nCurves += s.curves.size() + s.outlines.size();
+            for (var c : s.curves) total += c.points.size();
+            for (var c : s.outlines) total += c.points.size();
+        }
+        if (targets.isEmpty()) { status("No curves or outlines to convert"); return; }
+        String msg = "Convert " + nCurves + " curve(s)/outline(s) in " + targets.size()
+                + " specimen(s) to landmarks?\nThe curves will be removed.";
+        if (JOptionPane.showConfirmDialog(this, msg, "Convert Curves", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        undo.saveAll(targets);
+        int added = 0;
+        for (Specimen s : targets) added += s.allCurvesToLandmarks();
+        canvas.clearCurveSelection();
+        changed();
+        status("Converted " + nCurves + " curve(s)/outline(s) in " + targets.size() + " specimen(s) to " + added
+                + " landmark(s)" + (total > added ? " (" + (total - added) + " duplicate(s) skipped)" : ""));
     }
 
     private void moveLandmark(int dir) {
