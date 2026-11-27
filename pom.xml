@@ -5,6 +5,16 @@
   <groupId>landmarker</groupId>
   <artifactId>landmarker</artifactId>
   <version>1.0</version>
+  <name>Landmarker</name>
+  <description>Desktop app for digitizing 2D landmarks and semi-landmarks on specimen images, saved as TPS files.</description>
+  <url>https://github.com/tomayyeung/landmarker</url>
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
